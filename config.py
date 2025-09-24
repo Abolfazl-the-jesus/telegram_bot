@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TOKEN = os.getenv("8470946919:AAG55k7H7TFUUqdEgi9LL269OD9bOFY32es")
+TOKEN = os.getenv("")
 AUDIO_API_KEY = os.getenv("hfg")
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "")   # <-- اضافه شد
 ADMINS = [int(x) for x in os.getenv("SUPERBOT_ADMINS", "").split(",") if x.strip()]
