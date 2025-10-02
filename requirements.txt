@@ -5,3 +5,13 @@ python-dotenv==1.0.0
 requests==2.31.0
 cryptography==41.0.3
 pydub
+aiogram==3.8.2
+SQLAlchemy>=1.4.46
+asyncpg>=0.26.0
+alembic>=1.11.1
+python-dotenv>=1.0.0
+yt-dlp
+pydub
+requests
+cryptography
+aiosqlite>=0.18.0
