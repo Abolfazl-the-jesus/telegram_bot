@@ -64,9 +64,11 @@ async def proxy_health_worker():
     while True:
         try:
             rows = await list_proxies_from_db(limit=500)
-            for row in rows:
-                proxy = row[1]
-                test_proxy(proxy)
+            async def check(proxy: str):
+                return await asyncio.to_thread(test_proxy, proxy)
+            tasks = [check(r[1]) for r in rows]
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             print("proxy_health_worker error:", e)
         await asyncio.sleep(PROXY_HEALTH_INTERVAL)

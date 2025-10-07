@@ -20,6 +20,6 @@ async def start_cmd(message: types.Message):
         buttons.append(ADMIN_BUTTON_ROW)
     keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
     await message.answer(
-        "سلام 👋\nبه ربات خوش آمدید!\nاز دکمه‌های زیر برای استفاده از بخش‌های مختلف استفاده کنید.",
+        "سلام 👋\nبه ربات خوش آمدید!\nدستورات مفید: /chat, /random, /advanced, /online, /balance",
         reply_markup=keyboard
     )

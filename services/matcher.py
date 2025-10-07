@@ -1,6 +1,7 @@
 # src/services/matcher.py
 from typing import Optional, Tuple
-from services.database import AsyncSessionLocal, User, create_chat_session
+from services.database import AsyncSessionLocal, User, create_chat_session, is_blocked
+from config import CREDIT_COST_RANDOM, CREDIT_COST_ADVANCED
 from sqlalchemy import select
 
 async def enqueue_search(user_id: int, gender: Optional[str] = None, province: Optional[str] = None, city: Optional[str] = None) -> Optional[Tuple[int,int]]:
@@ -15,7 +16,11 @@ async def enqueue_search(user_id: int, gender: Optional[str] = None, province: O
                 session.add(me)
                 await session.flush()
 
-            if (me.credits or 0) < 1:
+            # determine required credits (advanced if any filter is present)
+            is_advanced = any([gender, province, city])
+            required = CREDIT_COST_ADVANCED if is_advanced else CREDIT_COST_RANDOM
+
+            if (me.credits or 0) < required:
                 return None
 
             me.status = "searching"
@@ -40,14 +45,24 @@ async def enqueue_search(user_id: int, gender: Optional[str] = None, province: O
             res2 = await session.execute(me_stmt)
             me_locked = res2.scalar_one()
 
-            if me_locked.credits < 1 or candidate.credits < 1:
+            # re-check credit with same required cost
+            if me_locked.credits < required or candidate.credits < 1:
                 candidate.status = 'idle'
                 candidate.partner_id = None
                 me_locked.status = 'idle'
                 me_locked.partner_id = None
                 return None
 
-            me_locked.credits -= 1
+            # avoid pairing blocked users
+            if await is_blocked(me_locked.id, candidate.id):
+                # skip this candidate; mark candidate idle and try none (caller can retry)
+                candidate.status = 'idle'
+                candidate.partner_id = None
+                me_locked.status = 'idle'
+                me_locked.partner_id = None
+                return None
+
+            me_locked.credits -= required
             candidate.credits -= 1
 
             me_locked.status = 'chatting'

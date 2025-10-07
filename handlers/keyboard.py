@@ -43,3 +43,19 @@ def invite_request_buttons(requester_id: int):
     kb.add(InlineKeyboardButton(text="قبول درخواست", callback_data=f"accept_req_{requester_id}"))
     kb.add(InlineKeyboardButton(text="رد درخواست", callback_data=f"decline_req_{requester_id}"))
     return kb
+
+
+def buy_credit_kb():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton(text="100 کردیت — 50 Stars", callback_data="buy_stars_100_50"),
+        InlineKeyboardButton(text="500 کردیت — 220 Stars", callback_data="buy_stars_500_220"),
+    )
+    kb.add(
+        InlineKeyboardButton(text="1000 کردیت — 400 Stars", callback_data="buy_stars_1000_400"),
+    )
+    kb.add(
+        InlineKeyboardButton(text="خرید با کارت بانکی", callback_data="buy_bank"),
+        InlineKeyboardButton(text="پرداخت با TON", callback_data="buy_ton"),
+    )
+    return kb

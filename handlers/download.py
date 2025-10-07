@@ -1,6 +1,7 @@
 
 from aiogram import Router, types
 from aiogram.types import Message, InputFile, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from aiogram import F
 from aiogram.filters import Command
 from services.downloader_service import download_no_proxy as download_video, get_formats
 from services.database import get_user_best_quality, set_user_best_quality
@@ -46,7 +47,7 @@ async def handle_link(message: Message):
     except Exception as e:
         await message.answer(f"خطا:\n{e}")
 
-@router.callback_query()
+@router.callback_query(F.data.startswith("dl_") | F.data.startswith("best_"))
 async def handle_quality_choice(callback: CallbackQuery):
     data = callback.data
     await callback.answer()

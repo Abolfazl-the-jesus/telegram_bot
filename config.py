@@ -21,5 +21,9 @@ MAX_SIZE_MB = int(os.getenv("MAX_SIZE_MB", 1900))
 DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# Credits
+CREDIT_COST_RANDOM = int(os.getenv("CREDIT_COST_RANDOM", 1))
+CREDIT_COST_ADVANCED = int(os.getenv("CREDIT_COST_ADVANCED", 2))
+
 
 

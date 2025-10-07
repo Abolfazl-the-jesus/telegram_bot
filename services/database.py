@@ -2,7 +2,7 @@
 import os
 from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, Text, DateTime, ForeignKey, func, Boolean, Index
+    Column, Integer, BigInteger, String, Text, DateTime, ForeignKey, func, Boolean, Index, UniqueConstraint
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -20,7 +20,7 @@ Base = declarative_base()
 
 # ---------------- Models ----------------
 class User(Base):
-    tablename = "users"
+    __tablename__ = "users"
     id = Column(BigInteger, primary_key=True, index=True)  # telegram user id
     username = Column(String(100), nullable=True, default="")
     gender = Column(String(16), nullable=True)
@@ -34,21 +34,24 @@ class User(Base):
 
 
 class Invite(Base):
-    tablename = "invites"
+    __tablename__ = "invites"
     code = Column(String(64), primary_key=True)
     inviter_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class UsedInvite(Base):
-    tablename = "used_invites"
+    __tablename__ = "used_invites"
     user_id = Column(BigInteger, primary_key=True)
     code = Column(String(64), nullable=False)
     used_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint('code', name='uq_used_invites_code'),
+    )
 
 
 class Report(Base):
-    tablename = "reports"
+    __tablename__ = "reports"
     id = Column(Integer, primary_key=True, autoincrement=True)
     reporter_id = Column(BigInteger, nullable=False)
     reported_id = Column(BigInteger, nullable=False)
@@ -57,15 +60,18 @@ class Report(Base):
 
 
 class Block(Base):
-    tablename = "blocks"
+    __tablename__ = "blocks"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, nullable=False)
     blocked_id = Column(BigInteger, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint('user_id', 'blocked_id', name='uq_blocks_pair'),
+    )
 
 
 class ChatSession(Base):
-    tablename = "chat_sessions"
+    __tablename__ = "chat_sessions"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_a = Column(BigInteger, nullable=False)
     user_b = Column(BigInteger, nullable=False)
@@ -98,6 +104,50 @@ class Proxy(Base):
     quarantine = Column(Boolean, nullable=False, default=False)
 
 Index('ix_users_status_created', User.status, User.created_at)
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    amount = Column(Integer, nullable=False)  # credits to add
+    provider = Column(String(32), nullable=False)  # e.g., zarinpal, zibal, manual
+    ref = Column(String(128), unique=True, nullable=False)
+    status = Column(String(16), nullable=False, default="pending")  # pending, paid, failed
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------- Orders CRUD ----------------
+async def create_order(user_id: int, amount: int, provider: str, ref: str) -> int:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            o = Order(user_id=user_id, amount=amount, provider=provider, ref=ref, status="pending")
+            session.add(o)
+            await session.flush()
+            return o.id
+
+async def get_order_by_ref(ref: str) -> Optional[Dict[str, Any]]:
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(Order).where(Order.ref == ref))
+        o = res.scalar_one_or_none()
+        if not o:
+            return None
+        return {"id": o.id, "user_id": o.user_id, "amount": o.amount, "provider": o.provider, "ref": o.ref, "status": o.status}
+
+async def mark_order_paid(ref: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            res = await session.execute(select(Order).where(Order.ref == ref))
+            o = res.scalar_one_or_none()
+            if not o or o.status == "paid":
+                return False
+            o.status = "paid"
+            o.paid_at = func.now()
+            u = await session.get(User, o.user_id)
+            if u:
+                u.credits += o.amount
+            return True
 
 
 # ---------------- Init ----------------
@@ -214,6 +264,10 @@ async def use_invite_for_user(code: str, new_user_id: int) -> bool:
                 return False
             used = await session.get(UsedInvite, new_user_id)
             if used:
+                return False
+            # enforce single-use invite code
+            existing_use = await session.execute(select(UsedInvite).where(UsedInvite.code == code))
+            if existing_use.scalar_one_or_none():
                 return False
             u = await session.get(User, new_user_id)
             if not u:

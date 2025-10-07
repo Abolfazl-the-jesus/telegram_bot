@@ -2,6 +2,7 @@ from aiogram import Router, types
 from aiogram.filters import Command
 from services.proxy_service import add_proxy, remove_proxy, list_proxies, extract_proxies_from_text, quarantine_proxy
 from config import ADMINS
+from services.database import mark_order_paid, get_order_by_ref
 
 router = Router()
 
@@ -43,6 +44,35 @@ async def cmd_listproxies(message: types.Message):
     text = "آیدی | پروکسی | فعال | شکست‌ها\n"
     text += "\n".join([f"{r[0]} | {r[1]} | {r[4]} | {r[5]}" for r in rows])  # indexها اصلاح شد
     await message.reply(text)
+
+
+@router.message(Command("markpaid"))
+async def cmd_markpaid(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return await message.reply("❌ شما ادمین نیستید.")
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("Usage: /markpaid <order_ref>")
+    ref = parts[1].strip()
+    ok = await mark_order_paid(ref)
+    if ok:
+        await message.reply("✅ سفارش پرداخت‌شده ثبت شد و کردیت اضافه گردید.")
+    else:
+        await message.reply("❌ سفارش پیدا نشد یا قبلاً پرداخت شده بود.")
+
+
+@router.message(Command("order"))
+async def cmd_order(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return await message.reply("❌ شما ادمین نیستید.")
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("Usage: /order <order_ref>")
+    ref = parts[1].strip()
+    o = await get_order_by_ref(ref)
+    if not o:
+        return await message.reply("پیدا نشد.")
+    await message.reply(f"Order #{o['id']} user={o['user_id']} amount={o['amount']} provider={o['provider']} status={o['status']}")
 
 @router.message(Command("submitproxy"))
 async def cmd_submitproxy(message: types.Message):
