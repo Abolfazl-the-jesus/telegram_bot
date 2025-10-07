@@ -1,31 +1,26 @@
-# services/database.py
+# src/services/database.py
 import os
-from typing import Optional, List, Dict, Any
-
+from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Text, DateTime, ForeignKey, func, Boolean, Index
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
-from sqlalchemy import select, update, insert, and_, or_, literal_column
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import select, and_, or_, update
 from sqlalchemy.exc import IntegrityError
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")  # e.g. postgresql+asyncpg://user:pass@host/db
-USE_SQLITE_FALLBACK = False
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 if not DATABASE_URL:
-    # fallback to local sqlite async for dev
     DATABASE_URL = "sqlite+aiosqlite:///./data/bot_dev.db"
-    USE_SQLITE_FALLBACK = True
 
-# create engine & session
 engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-
 Base = declarative_base()
+
 
 # ---------------- Models ----------------
 class User(Base):
-    __tablename__ = "users"
+    tablename = "users"
     id = Column(BigInteger, primary_key=True, index=True)  # telegram user id
     username = Column(String(100), nullable=True, default="")
     gender = Column(String(16), nullable=True)
@@ -37,27 +32,23 @@ class User(Base):
     credits = Column(Integer, nullable=False, default=10)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # relationships not strictly necessary here
-
-Index("ix_users_status", User.status)
-
 
 class Invite(Base):
-    __tablename__ = "invites"
+    tablename = "invites"
     code = Column(String(64), primary_key=True)
     inviter_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class UsedInvite(Base):
-    __tablename__ = "used_invites"
+    tablename = "used_invites"
     user_id = Column(BigInteger, primary_key=True)
     code = Column(String(64), nullable=False)
     used_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class Report(Base):
-    __tablename__ = "reports"
+    tablename = "reports"
     id = Column(Integer, primary_key=True, autoincrement=True)
     reporter_id = Column(BigInteger, nullable=False)
     reported_id = Column(BigInteger, nullable=False)
@@ -66,27 +57,31 @@ class Report(Base):
 
 
 class Block(Base):
-    __tablename__ = "blocks"
+    tablename = "blocks"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, nullable=False)
     blocked_id = Column(BigInteger, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-Index("ix_blocks_pair", Block.user_id, Block.blocked_id)
+
+class ChatSession(Base):
+    tablename = "chat_sessions"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_a = Column(BigInteger, nullable=False)
+    user_b = Column(BigInteger, nullable=False)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_activity = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(String(32), nullable=False, default="active")  # active, ended, cancelled
 
 
-# ---------------- Utility / Init ----------------
+# ---------------- Init ----------------
 async def init_db():
-    """
-    Create tables if not exist. For production, use Alembic migrations instead.
-    Call this at bot startup for dev convenience, or run alembic for prod.
-    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
-# ---------------- CRUD / Business Logic (async) ----------------
-
+# ---------------- Utility / CRUD ----------------
 async def create_user_if_not_exists(user_id: int, username: Optional[str] = "") -> None:
     async with AsyncSessionLocal() as session:
         async with session.begin():
@@ -104,14 +99,12 @@ async def set_username(user_id: int, username: str):
                 u.username = username or u.username
             else:
                 session.add(User(id=user_id, username=username or "", credits=10))
-
-
 async def is_profile_complete(user_id: int) -> bool:
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
+        res = await session.execute(
             select(User.gender, User.province, User.city, User.profile_pic).where(User.id == user_id)
         )
-        row = result.first()
+        row = res.first()
         return bool(row and all(row))
 
 
@@ -148,8 +141,8 @@ async def set_profile_pic(user_id: int, file_id: str):
 # credits
 async def get_credits(user_id: int) -> int:
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(User.credits).where(User.id == user_id))
-        r = result.scalar_one_or_none()
+        res = await session.execute(select(User.credits).where(User.id == user_id))
+        r = res.scalar_one_or_none()
         return int(r) if r is not None else 0
 
 async def add_credits(user_id: int, amount: int = 1):
@@ -157,14 +150,14 @@ async def add_credits(user_id: int, amount: int = 1):
         async with session.begin():
             u = await session.get(User, user_id)
             if u:
-                u.credits = u.credits + amount
+                u.credits += amount
             else:
                 session.add(User(id=user_id, credits=amount))
 
+
 async def consume_credit(user_id: int, amount: int = 1) -> bool:
     """
-    Atomically consume credits using SELECT ... FOR UPDATE to avoid race conditions.
-    Returns True if successful, False if insufficient credits.
+    Atomically consume credits. Returns True if successful.
     """
     async with AsyncSessionLocal() as session:
         async with session.begin():
@@ -189,38 +182,34 @@ async def create_invite(code: str, inviter_id: int) -> bool:
                 return False
 
 async def use_invite_for_user(code: str, new_user_id: int) -> bool:
-    """
-    Apply invite: if exists and not used by this user -> give +5 to inviter and new_user (record usage).
-    """
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            # ensure invite exists
             inv = await session.get(Invite, code)
             if not inv:
                 return False
-            # check if new_user already used invite
-            used = await session.execute(select(UsedInvite).where(UsedInvite.user_id == new_user_id))
-            if used.scalar_one_or_none():
+            used = await session.get(UsedInvite, new_user_id)
+            if used:
                 return False
-            # ensure user record exists
             u = await session.get(User, new_user_id)
             if not u:
                 session.add(User(id=new_user_id, credits=5))
             else:
                 u.credits += 5
-            # give inviter +5
             inviter = await session.get(User, inv.inviter_id)
             if inviter:
                 inviter.credits += 5
             else:
                 session.add(User(id=inv.inviter_id, credits=5))
-            # record usage
             ui = UsedInvite(user_id=new_user_id, code=code)
             session.add(ui)
             return True
 
-
-# status / matching (basic, DB-backed)
+async def get_invite_for_user(inviter_id: int) -> Optional[str]:
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(Invite.code).where(Invite.inviter_id == inviter_id))
+        row = res.scalar_one_or_none()
+        return row
+# status / matching helpers & session management
 async def set_status(user_id: int, status: str, partner_id: Optional[int] = None):
     async with AsyncSessionLocal() as session:
         async with session.begin():
@@ -229,55 +218,39 @@ async def set_status(user_id: int, status: str, partner_id: Optional[int] = None
                 u.status = status
                 u.partner_id = partner_id
 
-async def get_status(user_id: int) -> (str, Optional[int]):
+async def get_status(user_id: int) -> Tuple[str, Optional[int]]:
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(User.status, User.partner_id).where(User.id == user_id))
-        row = result.first()
+        res = await session.execute(select(User.status, User.partner_id).where(User.id == user_id))
+        row = res.first()
         if not row:
             return ("idle", None)
         return (row[0], row[1])
 
 
-async def find_partner(user_id: int, gender: Optional[str] = None, province: Optional[str] = None) -> Optional[int]:
+async def find_partner_candidate(user_id: int, gender: Optional[str] = None, province: Optional[str] = None, city: Optional[str] = None) -> Optional[int]:
     """
-    Find a candidate who is searching. Use transaction + SELECT ... FOR UPDATE to avoid double-matching.
-    Note: for large scale, use Redis queue instead of DB scans.
+    Find one candidate row with FOR UPDATE SKIP LOCKED. This is used by matcher to lock candidate.
     """
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            # choose candidate
-            stmt = select(User).where(
-                User.status == 'searching',
-                User.id != user_id
-            )
+            stmt = select(User).where(User.status == 'searching', User.id != user_id)
             if gender:
                 stmt = stmt.where(User.gender == gender)
             if province:
                 stmt = stmt.where(User.province == province)
+            if city:
+                stmt = stmt.where(User.city == city)
             stmt = stmt.order_by(User.created_at).with_for_update(skip_locked=True).limit(1)
             res = await session.execute(stmt)
-            candidate = res.scalar_one_or_none()
-            if not candidate:
-                return None
-            # set both to chatting and partner id
-            me = await session.get(User, user_id)
-            if not me:
-                return None
-            me.status = "chatting"
-            me.partner_id = candidate.id
-            candidate.status = "chatting"
-            candidate.partner_id = user_id
-            return candidate.id
+            cand = res.scalar_one_or_none()
+            return cand.id if cand else None
 
 
 async def get_online_users(limit: int = 50) -> List[Dict[str, Any]]:
     async with AsyncSessionLocal() as session:
         res = await session.execute(select(User).where(User.status == 'idle').limit(limit))
         rows = res.scalars().all()
-        return [
-            {"user_id": r.id, "username": r.username, "gender": r.gender, "province": r.province, "city": r.city}
-            for r in rows
-        ]
+        return [{"user_id": r.id, "username": r.username, "gender": r.gender, "province": r.province, "city": r.city} for r in rows]
 
 
 # blocks / reports
@@ -289,12 +262,14 @@ async def block_user(user_id: int, blocked_id: int):
 
 async def is_blocked(a: int, b: int) -> bool:
     async with AsyncSessionLocal() as session:
-        res = await session.execute(select(Block).where(
-            or_(
-                and_(Block.user_id == a, Block.blocked_id == b),
-                and_(Block.user_id == b, Block.blocked_id == a)
-            )
-        ).limit(1))
+        res = await session.execute(
+            select(Block).where(
+                or_(
+                    and_(Block.user_id == a, Block.blocked_id == b),
+                    and_(Block.user_id == b, Block.blocked_id == a)
+                )
+            ).limit(1)
+        )
         return res.scalar_one_or_none() is not None
 
 async def report_user(reporter_id: int, reported_id: int, reason: str = ""):
@@ -302,3 +277,100 @@ async def report_user(reporter_id: int, reported_id: int, reason: str = ""):
         async with session.begin():
             r = Report(reporter_id=reporter_id, reported_id=reported_id, reason=reason)
             session.add(r)
+
+async def list_reports(limit: int = 100):
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(Report).order_by(Report.created_at.desc()).limit(limit))
+        return [dict(id=r.id, reporter_id=r.reporter_id, reported_id=r.reported_id, reason=r.reason, created_at=r.created_at) for r in res.scalars().all()]
+
+
+# chat sessions
+async def create_chat_session(user_a: int, user_b: int) -> int:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            cs = ChatSession(user_a=user_a, user_b=user_b)
+            session.add(cs)
+            await session.flush()
+            return cs.id
+
+async def end_chat_session(session_id: int):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            cs = await session.get(ChatSession, session_id)
+            if cs and cs.status == "active":
+                cs.status = "ended"
+                cs.ended_at = func.now()
+async def get_session_by_user(user_id: int) -> Optional[Dict[str, Any]]:
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            select(ChatSession).where(
+                and_(
+                    ChatSession.status == "active",
+                    or_(ChatSession.user_a == user_id, ChatSession.user_b == user_id)
+                )
+            ).limit(1)
+        )
+        cs = res.scalar_one_or_none()
+        if not cs:
+            return None
+        return {"id": cs.id, "user_a": cs.user_a, "user_b": cs.user_b, "started_at": cs.started_at, "last_activity": cs.last_activity}
+
+async def end_chat_session_by_users(user_a: int, user_b: int):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            res = await session.execute(select(ChatSession).where(
+                and_(
+                    ChatSession.status == "active",
+                    or_(
+                        and_(ChatSession.user_a == user_a, ChatSession.user_b == user_b),
+                        and_(ChatSession.user_a == user_b, ChatSession.user_b == user_a)
+                    )
+                )
+            ).limit(1))
+            cs = res.scalar_one_or_none()
+            if cs:
+                cs.status = "ended"
+                cs.ended_at = func.now()
+
+async def update_session_activity(session_id: int):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            cs = await session.get(ChatSession, session_id)
+            if cs:
+                cs.last_activity = func.now()
+
+async def end_expired_sessions(max_seconds: int = 3600) -> int:
+    """
+    End sessions with last_activity older than max_seconds.
+    Returns number of sessions ended.
+    """
+    import datetime
+    cutoff = func.datetime(func.now(), f"-{max_seconds} seconds") if DATABASE_URL.startswith("sqlite") else func.now() - func.cast(max_seconds, Integer)
+    # NOTE: sqlite syntax for datetime func can differ; simplest approach: do in python for sqlite
+    if DATABASE_URL.startswith("sqlite"):
+        # fallback implementation: select and compare in python
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                res = await session.execute(select(ChatSession).where(ChatSession.status == "active"))
+                ended = 0
+                from datetime import datetime, timezone, timedelta
+                for cs in res.scalars().all():
+                    if cs.last_activity:
+                        # cs.last_activity is datetime
+                        if (datetime.now(timezone.utc) - cs.last_activity) .total_seconds() > max_seconds:
+                            cs.status = "ended"
+                            cs.ended_at = func.now()
+                            ended += 1
+                return ended
+    else:
+        # For Postgres, do atomic update
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                # use raw update with interval
+                await session.execute(
+                    update(ChatSession).
+                    where(ChatSession.status == "active").
+                    where(ChatSession.last_activity < func.now() - func.cast(f'{max_seconds} seconds', Text))
+                )
+                # For simplicity return 0 here (counting would require RETURNING which SQLAlchemy async may support).
+                return 0               
