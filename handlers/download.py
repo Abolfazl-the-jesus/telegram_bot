@@ -2,7 +2,7 @@
 from aiogram import Router, types
 from aiogram.types import Message, InputFile, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from aiogram.filters import Command
-from services.downloader_service import download_video, get_formats
+from services.downloader_service import download_no_proxy as download_video, get_formats
 from services.database import get_user_best_quality, set_user_best_quality
 from services.uploader_service import upload_file
 import os
@@ -22,13 +22,13 @@ async def handle_link(message: Message):
     try:
         if "youtube.com" in url or "youtu.be" in url:
             formats = get_formats(url)
-            user_best = get_user_best_quality(message.from_user.id)
+            user_best = await get_user_best_quality(message.from_user.id)
             if user_best:
-                file_path = await download_video(url, format_id=user_best)
+                file_path = await download_video(url, format_id=user_best, tg_user_id=message.from_user.id)
                 await send_file(message, file_path)
                 return
             if len(formats) == 1:
-                file_path = await download_video(url, format_id=formats[0]['format_id'])
+                file_path = await download_video(url, format_id=formats[0]['format_id'], tg_user_id=message.from_user.id)
                 await send_file(message, file_path)
             else:
                 kb = InlineKeyboardMarkup(row_width=2)
@@ -41,7 +41,7 @@ async def handle_link(message: Message):
                     )
                 await message.answer("کیفیت مورد نظر را انتخاب کنید", reply_markup=kb)
         else:
-            file_path = await download_video(url)
+            file_path = await download_video(url, tg_user_id=message.from_user.id)
             await send_file(message, file_path)
     except Exception as e:
         await message.answer(f"خطا:\n{e}")
@@ -53,13 +53,13 @@ async def handle_quality_choice(callback: CallbackQuery):
     if data.startswith("dl_"):
         _, format_id, url = data.split("_", 2)
         await callback.message.answer("دانلود با کیفیت انتخاب شده ...")
-        file_path = await download_video(url, format_id=format_id)
+        file_path = await download_video(url, format_id=format_id, tg_user_id=callback.from_user.id)
         await send_file(callback.message, file_path)
     elif data.startswith("best_"):
         _, best_format, url = data.split("_", 2)
-        set_user_best_quality(callback.from_user.id, best_format)
+        await set_user_best_quality(callback.from_user.id, best_format)
         await callback.message.answer("تنظیم شد: همیشه بهترین کیفیت دانلود شود")
-        file_path = await download_video(url, format_id=best_format)
+        file_path = await download_video(url, format_id=best_format, tg_user_id=callback.from_user.id)
         await send_file(callback.message, file_path)
 
 async def send_file(message: Message, file_path: str):

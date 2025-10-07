@@ -3,12 +3,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import TOKEN, PROXY_HEALTH_INTERVAL
 from handlers import start, download, music, admin, admin_panel, anonymous_chat
-from services.proxy_service import proxy_health_worker, init_proxy_service
+from services.proxy_service import proxy_health_worker
 from services.database import init_db
 
 async def main():
-    init_db()
-    init_proxy_service()
+    await init_db()
     bot = Bot(token=TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 

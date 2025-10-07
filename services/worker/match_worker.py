@@ -4,7 +4,8 @@ import logging
 from typing import Optional
 
 from services.matcher import enqueue_search
-from services.database import AsyncSessionLocal, User, select
+from services.database import AsyncSessionLocal, User
+from sqlalchemy import select
 
 logger = logging.getLogger("match_worker")
 logger.setLevel(logging.INFO)

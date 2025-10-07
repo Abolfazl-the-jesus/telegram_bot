@@ -75,6 +75,31 @@ class ChatSession(Base):
     status = Column(String(32), nullable=False, default="active")  # active, ended, cancelled
 
 
+class UserPrefs(Base):
+    __tablename__ = "user_prefs"
+    user_id = Column(BigInteger, ForeignKey("users.id"), primary_key=True)
+    best_quality = Column(String(32), nullable=True)
+
+
+class UserCookie(Base):
+    __tablename__ = "user_cookies"
+    user_id = Column(BigInteger, ForeignKey("users.id"), primary_key=True)
+    enc_path = Column(String(512), nullable=False)
+
+
+class Proxy(Base):
+    __tablename__ = "proxies"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    proxy = Column(String(256), unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    active = Column(Boolean, nullable=False, default=True)
+    failed_count = Column(Integer, nullable=False, default=0)
+    quarantine = Column(Boolean, nullable=False, default=False)
+
+Index('ix_users_status_created', User.status, User.created_at)
+
+
 # ---------------- Init ----------------
 async def init_db():
     async with engine.begin() as conn:
@@ -300,6 +325,96 @@ async def end_chat_session(session_id: int):
             if cs and cs.status == "active":
                 cs.status = "ended"
                 cs.ended_at = func.now()
+
+
+# ---------------- User Prefs / Cookies ----------------
+async def get_user_best_quality(user_id: int) -> Optional[str]:
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(UserPrefs.best_quality).where(UserPrefs.user_id == user_id))
+        return res.scalar_one_or_none()
+
+async def set_user_best_quality(user_id: int, best_quality: str) -> None:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            row = await session.get(UserPrefs, user_id)
+            if row is None:
+                session.add(UserPrefs(user_id=user_id, best_quality=best_quality))
+            else:
+                row.best_quality = best_quality
+
+async def set_user_cookie_path(user_id: int, enc_path: str) -> None:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            row = await session.get(UserCookie, user_id)
+            if row is None:
+                session.add(UserCookie(user_id=user_id, enc_path=enc_path))
+            else:
+                row.enc_path = enc_path
+
+async def get_user_cookie_path(user_id: int) -> Optional[str]:
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(UserCookie.enc_path).where(UserCookie.user_id == user_id))
+        return res.scalar_one_or_none()
+
+
+# ---------------- Proxies CRUD ----------------
+async def add_proxy_to_db(proxy: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            exists = await session.execute(select(Proxy).where(Proxy.proxy == proxy))
+            if exists.scalar_one_or_none():
+                return False
+            session.add(Proxy(proxy=proxy, active=True, quarantine=False, failed_count=0))
+            return True
+
+async def remove_proxy_from_db(proxy: str) -> None:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            res = await session.execute(select(Proxy).where(Proxy.proxy == proxy))
+            row = res.scalar_one_or_none()
+            if row:
+                await session.delete(row)
+
+async def list_proxies_from_db(limit: int = 100):
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(Proxy.id, Proxy.proxy, Proxy.created_at, Proxy.updated_at, Proxy.active, Proxy.failed_count).limit(limit))
+        return res.all()
+
+async def get_active_proxies_from_db(limit: int = 50):
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(Proxy.proxy).where(Proxy.active == True, Proxy.quarantine == False).limit(limit))
+        return [r for r in res.scalars().all()]
+
+async def mark_proxy_failed_in_db(proxy: str) -> None:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            res = await session.execute(select(Proxy).where(Proxy.proxy == proxy))
+            row = res.scalar_one_or_none()
+            if row:
+                row.failed_count += 1
+                if row.failed_count >= 3:
+                    row.active = False
+
+async def mark_proxy_ok_in_db(proxy: str) -> None:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            res = await session.execute(select(Proxy).where(Proxy.proxy == proxy))
+            row = res.scalar_one_or_none()
+            if row:
+                row.failed_count = 0
+                row.active = True
+                row.quarantine = False
+
+async def quarantine_proxy_in_db(proxy: str) -> None:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            res = await session.execute(select(Proxy).where(Proxy.proxy == proxy))
+            row = res.scalar_one_or_none()
+            if row:
+                row.quarantine = True
+                row.active = False
+            else:
+                session.add(Proxy(proxy=proxy, active=False, quarantine=True, failed_count=0))
 async def get_session_by_user(user_id: int) -> Optional[Dict[str, Any]]:
     async with AsyncSessionLocal() as session:
         res = await session.execute(

@@ -23,26 +23,26 @@ def extract_proxies_from_text(text: str) -> List[str]:
         normalized.append(s)
     return normalized
 
-def add_proxy(proxy: str) -> bool:
-    return add_proxy_to_db(proxy)
+async def add_proxy(proxy: str) -> bool:
+    return await add_proxy_to_db(proxy)
 
-def remove_proxy(proxy: str):
-    return remove_proxy_from_db(proxy)
+async def remove_proxy(proxy: str):
+    return await remove_proxy_from_db(proxy)
 
-def quarantine_proxy(proxy: str):
-    return quarantine_proxy_in_db(proxy)
+async def quarantine_proxy(proxy: str):
+    return await quarantine_proxy_in_db(proxy)
 
-def list_proxies(limit: int = 100):
-    return list_proxies_from_db(limit)
+async def list_proxies(limit: int = 100):
+    return await list_proxies_from_db(limit)
 
-def get_active_proxies(limit: int = 50):
-    return get_active_proxies_from_db(limit)
+async def get_active_proxies(limit: int = 50):
+    return await get_active_proxies_from_db(limit)
 
-def mark_proxy_failed(proxy: str):
-    mark_proxy_failed_in_db(proxy)
+async def mark_proxy_failed(proxy: str):
+    await mark_proxy_failed_in_db(proxy)
 
-def mark_proxy_ok(proxy: str):
-    mark_proxy_ok_in_db(proxy)
+async def mark_proxy_ok(proxy: str):
+    await mark_proxy_ok_in_db(proxy)
 
 def test_proxy(proxy: str, timeout: int = REQUEST_TIMEOUT) -> bool:
     proxies = {"http": proxy, "https": proxy}
@@ -63,7 +63,7 @@ async def proxy_health_worker():
     """
     while True:
         try:
-            rows = list_proxies_from_db(limit=500)
+            rows = await list_proxies_from_db(limit=500)
             for row in rows:
                 proxy = row[1]
                 test_proxy(proxy)

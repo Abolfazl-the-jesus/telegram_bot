@@ -37,7 +37,7 @@ async def download_no_proxy(url: str, format_id: str = None, tg_user_id: int = N
     }
     temp_cookie = None
     if tg_user_id:
-        enc_path = get_user_cookie_path(tg_user_id)
+        enc_path = await get_user_cookie_path(tg_user_id)
         if enc_path:
             temp_cookie = decrypt_cookie_to_temp(enc_path, tg_user_id)
             ydl_opts['cookiefile'] = temp_cookie
@@ -65,7 +65,7 @@ async def try_download_with_proxy(url: str, proxy: str, format_id: str = None, t
     }
     temp_cookie = None
     if tg_user_id:
-        enc_path = get_user_cookie_path(tg_user_id)
+        enc_path = await get_user_cookie_path(tg_user_id)
         if enc_path:
             temp_cookie = decrypt_cookie_to_temp(enc_path, tg_user_id)
             ydl_opts['cookiefile'] = temp_cookie
@@ -88,7 +88,7 @@ async def download_with_proxy_rotation(url: str, format_id: str = None, tg_user_
     سعی می‌کند پروکسی‌های فعال را یکی‌یکی امتحان کند. اگر همه شکست خورد، بدون پروکسی دانلود می‌کند.
     """
     max_tries = max_tries or 6
-    proxies = get_active_proxies(limit=max_tries*2)
+    proxies = await get_active_proxies(limit=max_tries*2)
     tried = 0
     for p in proxies:
         if tried >= max_tries:
@@ -97,12 +97,12 @@ async def download_with_proxy_rotation(url: str, format_id: str = None, tg_user_
         try:
             ok = test_proxy(p, timeout=6)
             if not ok:
-                mark_proxy_failed(p)
+                await mark_proxy_failed(p)
                 continue
             filename = await try_download_with_proxy(url, p, format_id=format_id, tg_user_id=tg_user_id)
             return filename
         except Exception:
-            mark_proxy_failed(p)
+            await mark_proxy_failed(p)
             continue
     # اگر هیچ پروکسی نشد، بدون پروکسی دانلود کن
     return await download_no_proxy(url, format_id=format_id, tg_user_id=tg_user_id)

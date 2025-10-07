@@ -16,7 +16,7 @@ async def cmd_addproxy(message: types.Message):
     if len(parts) < 2:
         return await message.reply("Usage: /addproxy <proxy>")
     proxy = parts[1].strip()
-    ok = add_proxy(proxy)
+    ok = await add_proxy(proxy)
     if ok:
         await message.reply(f"✅ پروکسی اضافه شد: {proxy}")
     else:
@@ -30,14 +30,14 @@ async def cmd_delproxy(message: types.Message):
     if len(parts) < 2:
         return await message.reply("Usage: /delproxy <proxy>")
     proxy = parts[1].strip()
-    remove_proxy(proxy)
+    await remove_proxy(proxy)
     await message.reply(f"✅ پروکسی حذف شد: {proxy}")
 
 @router.message(Command("listproxies"))
 async def cmd_listproxies(message: types.Message):
     if not is_admin(message.from_user.id):
         return await message.reply("❌ شما ادمین نیستید.")
-    rows = list_proxies()
+    rows = await list_proxies()
     if not rows:
         return await message.reply("لیست پروکسی خالی است.")
     text = "آیدی | پروکسی | فعال | شکست‌ها\n"
@@ -55,7 +55,7 @@ async def cmd_submitproxy(message: types.Message):
         return await message.reply("هیچ پروکسی معتبری پیدا نشد در متنت.")
     added = []
     for p in proxies:
-        quarantine_proxy(p)
+        await quarantine_proxy(p)
         added.append(p)
     await message.reply(f"✅ درخواست ثبت انجام شد. پروکسی‌ها به quarantine اضافه شدند:\n" + "\n".join(added))
 
@@ -68,7 +68,7 @@ async def handle_forwarded(message: types.Message):
             if is_admin(message.from_user.id):
                 added = []
                 for p in proxies:
-                    if add_proxy(p):
+                    if await add_proxy(p):
                         added.append(p)
                 if added:
                     return await message.reply("✅ پروکسی‌های اضافه شده:\n" + "\n".join(added))
@@ -76,5 +76,5 @@ async def handle_forwarded(message: types.Message):
                     return await message.reply("هیچ پروکسی جدیدی اضافه نشد (ممکن است قبلاً اضافه شده باشند).")
             else:
                 for p in proxies:
-                    quarantine_proxy(p)
+                    await quarantine_proxy(p)
                 return await message.reply("✅ پروکسی‌ها دریافت شد و برای تست به quarantine اضافه شدند. ادمین‌ها بعداً تایید/فعال خواهند کرد.")

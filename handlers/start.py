@@ -6,10 +6,10 @@ from config import ADMINS
 router = Router()
 
 MAIN_BUTTONS = [
-    [KeyboardButton(text="download"), KeyboardButton(text="findsong")]
+    [KeyboardButton(text="/download"), KeyboardButton(text="/findsong")]
 ]
 
-ADMIN_BUTTON_ROW = [KeyboardButton(text="addproxy")]
+ADMIN_BUTTON_ROW = [KeyboardButton(text="/listproxies")]
 
 @router.message(CommandStart())
 async def start_cmd(message: types.Message):
