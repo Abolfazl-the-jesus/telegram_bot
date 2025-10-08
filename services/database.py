@@ -118,6 +118,43 @@ class Order(Base):
     paid_at = Column(DateTime(timezone=True), nullable=True)
 
 
+# Likes / Favorites
+class Like(Base):
+    __tablename__ = "likes"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    liked_user_id = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint('user_id', 'liked_user_id', name='uq_likes_pair'),
+        Index('ix_likes_liked_user_id', 'liked_user_id'),
+    )
+
+
+class FavoriteRequest(Base):
+    __tablename__ = "favorite_requests"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requester_id = Column(BigInteger, nullable=False)
+    target_id = Column(BigInteger, nullable=False)
+    status = Column(String(16), nullable=False, default='pending')
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        UniqueConstraint('requester_id', 'target_id', name='uq_favreq_pair'),
+    )
+
+
+class Favorite(Base):
+    __tablename__ = "favorites"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(BigInteger, nullable=False)
+    favorite_user_id = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint('owner_id', 'favorite_user_id', name='uq_favorites_pair'),
+    )
+
+
 # ---------------- Orders CRUD ----------------
 async def create_order(user_id: int, amount: int, provider: str, ref: str) -> int:
     async with AsyncSessionLocal() as session:
@@ -514,8 +551,7 @@ async def end_expired_sessions(max_seconds: int = 3600) -> int:
     Returns number of sessions ended.
     """
     import datetime
-    cutoff = func.datetime(func.now(), f"-{max_seconds} seconds") if DATABASE_URL.startswith("sqlite") else func.now() - func.cast(max_seconds, Integer)
-    # NOTE: sqlite syntax for datetime func can differ; simplest approach: do in python for sqlite
+    # NOTE: sqlite syntax for datetime funcs differs; use python fallback for sqlite.
     if DATABASE_URL.startswith("sqlite"):
         # fallback implementation: select and compare in python
         async with AsyncSessionLocal() as session:

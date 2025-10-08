@@ -11,3 +11,6 @@ alembic==1.13.2
 aiosqlite==0.20.0
 shazamio==0.6.0
 aioboto3==12.3.0
+redis==5.0.7
+prometheus-client==0.20.0
+stripe==9.12.0

@@ -33,3 +33,15 @@ async def upload_file_from_path(local_path: str, filename: str) -> Optional[str]
         with open(local_path, "rb") as fh:
             await s3.put_object(Bucket=AWS_S3_BUCKET, Key=key, Body=fh)
         return f"s3://{AWS_S3_BUCKET}/{key}"
+
+async def generate_presigned_url(key: str, expires_in: int = 3600) -> Optional[str]:
+    session = aioboto3.Session()
+    async with session.client('s3',
+                              region_name=AWS_REGION,
+                              aws_secret_access_key=AWS_SECRET_KEY,
+                              aws_access_key_id=AWS_ACCESS_KEY) as s3:
+        try:
+            url = await s3.generate_presigned_url('get_object', Params={'Bucket': AWS_S3_BUCKET, 'Key': key}, ExpiresIn=expires_in)
+            return url
+        except Exception:
+            return None

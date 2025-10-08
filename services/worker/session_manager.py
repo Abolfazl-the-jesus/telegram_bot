@@ -1,3 +1,14 @@
+import asyncio
+from services.database import end_expired_sessions
+
+async def session_cleaner_loop(interval_seconds: int = 60, max_idle_seconds: int = 3600):
+    while True:
+        try:
+            await end_expired_sessions(max_seconds=max_idle_seconds)
+        except Exception as e:
+            print("session_cleaner_loop error:", e)
+        await asyncio.sleep(interval_seconds)
+
 # src/services/workers/session_manager.py
 import asyncio
 import logging
